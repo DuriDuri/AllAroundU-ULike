@@ -1,0 +1,249 @@
+//
+//  VONChatViewController.m
+//  ULike
+//
+//  Created by Duri Abdurahman Duri on 7/22/14.
+//  Copyright (c) 2014 Duri. All rights reserved.
+//
+
+#import "VONChatViewController.h"
+
+@interface VONChatViewController ()
+
+@property (strong, nonatomic) PFUser *withUser;
+@property (strong, nonatomic) PFUser *currentUser;
+
+@property (strong, nonatomic) NSTimer *chatTimer;
+@property (nonatomic) BOOL initialLoadComplete;
+
+@property (strong, nonatomic) NSMutableArray *chats;
+
+@end
+
+@implementation VONChatViewController
+
+-(NSMutableArray *)chats
+{
+    if (!_chats) {
+        _chats = [[NSMutableArray alloc] init];
+    }
+    return _chats;
+}
+- (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
+{
+    self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
+    if (self) {
+        // Custom initialization
+    }
+    return self;
+}
+
+- (void)viewDidLoad
+{
+    self.delegate = self;
+    self.dataSource = self;
+    
+    [super viewDidLoad];
+    // Do any additional setup after loading the view.
+
+    
+    [[JSBubbleView appearance] setFont:[UIFont fontWithName:@"HelveticaNeue" size:17.0f]];
+    self.messageInputView.textView.placeHolder = @"New Message";
+    [self setBackgroundColor:[UIColor whiteColor]];
+    
+    self.currentUser = [PFUser currentUser];
+    PFUser *testUser1 = self.chatroom[kVONChatRoomUser1Key];
+    if ([testUser1.objectId isEqual:self.currentUser.objectId]) {
+        self.withUser = self.chatroom[kVONChatRoomUser2Key];
+    }
+    else{
+        self.withUser = self.chatroom[kVONChatRoomUser1Key];
+    }
+    
+    self.title = self.withUser[kVONUserProfileKey][kVONUserProfileFirstNameKey];
+    
+    self.initialLoadComplete = NO;
+    
+    [self checkForNewChats];
+    
+    self.chatTimer = [NSTimer scheduledTimerWithTimeInterval:15 target:self selector:@selector(checkForNewChats) userInfo:nil repeats:YES];
+    
+}
+
+
+
+
+-(void)viewDidDisappear:(BOOL)animated
+{
+    [self.chatTimer invalidate];
+    self.chatTimer = nil;
+}
+
+
+
+
+- (void)didReceiveMemoryWarning
+{
+    [super didReceiveMemoryWarning];
+    // Dispose of any resources that can be recreated.
+}
+
+/*
+#pragma mark - Navigation
+
+// In a storyboard-based application, you will often want to do a little preparation before navigation
+- (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender
+{
+    // Get the new view controller using [segue destinationViewController].
+    // Pass the selected object to the new view controller.
+}
+*/
+
+
+#pragma mark - TableView DataSource
+
+-(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
+{
+    return [self.chats count];
+}
+
+-(NSString *)textForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    PFObject *chat = self.chats[indexPath.row];
+    NSString *message = chat[kVONChatTextKey];
+    
+    return message;
+
+}
+
+-(NSDate *)timestampForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    return nil;
+}
+
+-(UIImageView *)avatarImageViewForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    return nil;
+}
+
+-(NSString *)subtitleForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    return nil;
+}
+
+#pragma mark - TableView Delegate REQUIRED
+
+-(void)didSendText:(NSString *)text
+{
+    if (text.length != 0) {
+        PFObject *chat = [PFObject objectWithClassName:kVONChatClassKey];
+        [chat setObject:self.chatroom forKey:kVONChatChatroomKey];
+        [chat setObject:self.currentUser forKey:kVONChatFromUserKey];
+        [chat setObject:self.withUser forKey:kVONChatToUserKey];
+        [chat setObject:text forKey:kVONChatTextKey];
+        [chat saveInBackgroundWithBlock:^(BOOL succeeded, NSError *error) {
+            [self.chats addObject:chat];
+            [JSMessageSoundEffect playMessageSentSound];
+            [self.tableView reloadData];
+            [self finishSend];
+            [self scrollToBottomAnimated:YES];
+        }];
+    }
+}
+
+-(JSBubbleMessageType)messageTypeForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    PFObject *chat = self.chats[indexPath.row];
+    PFUser *testFromUser = chat[kVONChatFromUserKey];
+    
+    if ([testFromUser.objectId isEqual:self.currentUser.objectId]) {
+        return JSBubbleMessageTypeOutgoing;
+    } else {
+        return JSBubbleMessageTypeIncoming;
+    }
+}
+
+
+-(UIImageView *)bubbleImageViewWithType:(JSBubbleMessageType)type forRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    PFObject *chat = self.chats[indexPath.row];
+    PFUser *testFromUser = chat[kVONChatFromUserKey];
+    
+    if ([testFromUser.objectId isEqual:self.currentUser.objectId])
+        {
+            return [JSBubbleImageViewFactory bubbleImageViewForType:type color:[UIColor js_bubbleGreenColor]];
+        }
+    else return [JSBubbleImageViewFactory bubbleImageViewForType:type color:[UIColor js_bubbleLightGrayColor]];
+   
+}
+
+-(JSMessagesViewTimestampPolicy)timestampPolicy
+{
+    
+    return JSMessagesViewTimestampPolicyAll;
+
+}
+
+-(JSMessagesViewAvatarPolicy)avatarPolicy
+{
+    return JSMessagesViewAvatarPolicyNone;
+}
+
+-(JSMessagesViewSubtitlePolicy)subtitlePolicy
+{
+    return JSMessagesViewSubtitlePolicyNone;
+}
+
+-(JSMessageInputViewStyle)inputViewStyle
+{
+    return JSMessageInputViewStyleFlat;
+}
+
+
+#pragma mark - TableView Delegate OPTIONAL
+
+-(void)configureCell:(JSBubbleMessageCell *)cell atIndexPath:(NSIndexPath *)indexPath
+{
+    if ([cell messageType] == JSBubbleMessageTypeOutgoing) {
+        cell.bubbleView.textView.textColor = [UIColor whiteColor];
+    }
+}
+
+-(BOOL)shouldPreventScrollToBottomWhileUserScrolling{
+    return YES;
+}
+
+
+#pragma mark -Helper Methods
+
+-(void)checkForNewChats
+{
+    int oldChatCount = [self.chats count];
+    
+    PFQuery *queryForChats = [PFQuery queryWithClassName:kVONChatClassKey];
+    [queryForChats whereKey:kVONChatChatroomKey equalTo:self.chatroom];
+    [queryForChats orderByAscending:@"createdAt"];
+    [queryForChats findObjectsInBackgroundWithBlock:^(NSArray *objects, NSError *error) {
+        if (!error) {
+            if (self.initialLoadComplete == NO || oldChatCount != [objects count]) {
+                self.chats = [objects mutableCopy];
+                
+                if (self.initialLoadComplete ==YES) {
+                    [JSMessageSoundEffect playMessageReceivedSound];
+                }
+                
+                [self.tableView reloadData];
+                self.initialLoadComplete = YES;
+                
+                [self scrollToBottomAnimated:YES];
+            }
+        }
+    }];
+    
+    
+}
+
+
+
+
+@end
